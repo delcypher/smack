@@ -28,14 +28,11 @@ chmod u+x cde
 # Clean up smack-verify junk
 rm corral* a.bpl test.* cde cde.options
 
-
-
 # Create wrapper script
 echo \#\!/bin/sh                                                >  smack-verify.sh
 echo HERE=\"\$\(dirname \"\$\(readlink -f \"\$\{0\}\"\)\"\)\"   >> smack-verify.sh
 echo \$HERE/cde-package/cde-exec \'smack-verify.py\' \"\$\@\"   >> smack-verify.sh
-chmod u+x smack-verify
-
+chmod u+x smack-verify.sh
 
 # tar it up
 cd ..
