@@ -112,6 +112,8 @@ if __name__ == '__main__':
                       help='Boogie time limit in seconds')
   parser.add_argument('--smackd', dest='smackd', action="store_true", default=False,
                       help='output JSON format for SMACKd')
+  parser.add_argument('--sound-unroll', dest='soundUnroll', action="store_true", default=False,
+                      help='soundly unroll loops in Boogie')
 
   parser.parse_args() # just check if arguments are looking good
 
@@ -120,6 +122,8 @@ if __name__ == '__main__':
   sysArgv = sys.argv[:]
   for i in reversed(range(len(sysArgv))):
     if sysArgv[i] == '--smackd':
+      del sysArgv[i]
+    elif sys.argv[i] == '--sound-unroll':
       del sysArgv[i]
     elif sys.argv[i] == '--time-limit':
       del sysArgv[i]
@@ -134,7 +138,12 @@ if __name__ == '__main__':
 
   if args.verifier == 'boogie-plain' or args.verifier == 'boogie-inline':
     # invoke Boogie
-    p = subprocess.Popen(['boogie', args.outfile.name, '/nologo', '/timeLimit:' + str(args.timeLimit), '/loopUnroll:' + str(args.unroll)], stdout=subprocess.PIPE)
+    boogieCommand = ['boogie']
+    boogieCommand += [args.outfile.name, '/nologo', '/timeLimit:' + str(args.timeLimit), '/loopUnroll:' + str(args.unroll)]
+    if args.soundUnroll:
+      boogieCommand += ['/soundLoopUnrolling']
+
+    p = subprocess.Popen(boogieCommand, stdout=subprocess.PIPE)
     boogieOutput = p.communicate()[0]
     if p.returncode:
       print boogieOutput
