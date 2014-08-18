@@ -1,6 +1,7 @@
 #! /usr/bin/env python
 
 from os import path
+import os
 import sys
 import re
 import argparse
@@ -20,6 +21,8 @@ def smackParser():
                       help='specify entry procedures')
   parser.add_argument('--unroll', metavar='N', dest='unroll', type=int,
                       help='unroll loops/recursion in Boogie/Corral N number of times')
+  parser.add_argument('--outputdir', dest='outputdir', default='./',
+                      help='specify the directory where the temporary files are placed')
   return parser
 
 
@@ -43,20 +46,19 @@ def addEntryPoint(match, entryPoints):
   return procDef
 
 
-def clang(scriptPathName, inputFile, outputFileName, memoryModel, clangArgs):
+def clang(scriptPathName, inputFile, memoryModel, clangArgs):
   scriptFullPath = path.abspath(scriptPathName)
   smackRoot = path.dirname(scriptFullPath)
   smackHeaders = path.join(smackRoot, 'include', 'smack')
 
-  fileName = path.join(path.dirname(path.abspath(outputFileName)),
-    path.splitext(path.basename(inputFile.name))[0]) + '.bc'
+  fileName = path.splitext(inputFile.name)[0]
 
   clangCommand = ['clang']
   clangCommand += ['-c', '-emit-llvm', '-O0', '-g', '-gcolumn-info',
                    '-DMEMORY_MODEL_' + memoryModel.upper().replace('-','_'),
                    '-I' + smackHeaders]
   clangCommand += clangArgs.split()
-  clangCommand += [inputFile.name, '-o', fileName]
+  clangCommand += [inputFile.name, '-o', fileName + '.bc']
   #Redirect stderr to stdout, then grab stdout (communicate() calls wait())
   #This should more or less maintain stdout/stderr interleaving order
   #However, this will be problematic if any callers want to differentiate
@@ -69,8 +71,10 @@ def clang(scriptPathName, inputFile, outputFileName, memoryModel, clangArgs):
     print clangOutput
     sys.exit("SMACK encountered a clang error. Exiting...")
 
-  inputFileName = path.join(path.curdir, fileName)
+  inputFileName = fileName+'.bc'
   inputFile = open(inputFileName, 'r')
+  #inputFileName = path.join(path.curdir, fileName + '.bc')
+  #inputFile = open(inputFileName, 'r')
   return inputFile, clangOutput
 
 
@@ -84,6 +88,8 @@ def smackGenerate(sysArgv):
   clangOutput = None
 
   fileExtension = path.splitext(inputFile.name)[1]
+  boogiefileName = path.splitext(inputFile.name)[0].replace("CBC","BPL")+'.bpl'
+
   options = []
   if fileExtension == '.c':
     # if input file is .c, then search for options in comments and compile it with clang
@@ -93,8 +99,11 @@ def smackGenerate(sysArgv):
       if optionsMatch:
         options = optionsMatch.group(1).split()
         args = parser.parse_args(options + sysArgv[1:])
-    inputFile, clangOutput = clang(scriptPathName, inputFile, args.outfile, args.memmod, args.clang)
+    inputFile, clangOutput = clang(scriptPathName, inputFile, args.memmod, args.clang)
 
+
+  args.outfile = boogiefileName
+  
   bpl = llvm2bpl(inputFile, args.outfile, args.debug, "impls" in args.memmod)
   inputFile.close()
 

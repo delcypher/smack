@@ -1,6 +1,7 @@
 #! /usr/bin/env python
 
 from os import path
+import os
 import json
 import sys
 import re
@@ -121,8 +122,22 @@ if __name__ == '__main__':
   for i in reversed(range(len(sysArgv))):
     if sysArgv[i] == '--smackd':
       del sysArgv[i]
-    elif sysArgv[i].endswith('.c'):
-      sysArgv[i] = 'tmp.c'
+    elif sysArgv[i].endswith('.c') or sysArgv[i].endswith('.i'):
+      longfileName = sysArgv[i]
+      longfileName = longfileName.split('/')
+      #shortfileName = longfileName[len(longfileName)-1].split('.c')[0]
+      shortfileName = path.splitext(longfileName[len(longfileName)-1])[0]
+
+      boogiedirName = args.outputdir+'/BPL_'+longfileName[len(longfileName)-2]+'/'
+      cbcdirName = args.outputdir+'/CBC_'+longfileName[len(longfileName)-2]+'/'
+
+      if(not os.path.exists(boogiedirName)):
+        os.system("mkdir "+boogiedirName)
+      if(not os.path.exists(cbcdirName)):
+        os.system("mkdir "+cbcdirName) 
+
+      sysArgv[i] = cbcdirName+shortfileName+'.c'
+
     elif sys.argv[i] == '--time-limit':
       del sysArgv[i]
       del sysArgv[i]
@@ -130,18 +145,22 @@ if __name__ == '__main__':
   inputStr = args.infile.read()
   inputStr = '#include "smack.h"\n' + inputStr
   inputStr = inputStr.replace('ERROR:', 'ERROR: __SMACK_assert(0);')
-  f = open('tmp.c', 'w')
+  f = open(cbcdirName+shortfileName+'.c', 'w')
   f.write(inputStr)
   f.close()
 
-  bpl, options = smackGenerate(sysArgv)
+
+  bpl, options, dummyClangOutput = smackGenerate(sysArgv)#
   args = parser.parse_args(options + sys.argv[1:])
 
   # write final output
-  args.outfile.write(bpl)
-  args.outfile.close()
+  args.outfile = open(boogiedirName+shortfileName+'.bpl', 'w')
+  args.outfile.write(bpl)#
+  args.outfile.close()#
 
-  if args.verifier == 'boogie-plain' or args.verifier == 'boogie-inline':
+
+
+  if args.verifier == 'boogie':
     # invoke Boogie
     p = subprocess.Popen(['boogie', args.outfile.name, '/nologo', '/timeLimit:' + str(args.timeLimit), '/loopUnroll:' + str(args.unroll)], stdout=subprocess.PIPE)
     boogieOutput = p.communicate()[0]
