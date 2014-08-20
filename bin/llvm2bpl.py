@@ -1,7 +1,6 @@
 #! /usr/bin/env python
 
 from os import path
-import os
 import sys
 import subprocess
 import argparse
@@ -35,7 +34,7 @@ def llvm2bplParser():
 
 
 def llvm2bpl(infile, outfile, debugFlag, memImpls):
-
+    
   cmd = ['smack', '-source-loc-syms', infile.name]
   if debugFlag: cmd.append('-debug')
   if memImpls: cmd.append('-mem-mod-impls')
