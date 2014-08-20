@@ -43,8 +43,6 @@ void __SMACK_assume(int v) {
   __SMACK_code("assume {@} != 0;", v);
 }
 
-//// PROBLEM: in the 2D memory model, the declaration of boogie_si_record_int
-//// should have a type $ptr parameter, not an int.  How should we do this?
 // void __SMACK_record_int(int i) {
 //   __SMACK_top_decl("procedure boogie_si_record_int(i:int);");
 //   __SMACK_code("call boogie_si_record_int(@);", i);
@@ -132,9 +130,7 @@ void __SMACK_decls() {
   D("function $ui2fp(i:int) returns (float);");
 
   // Memory Model
-  D("function {:inline} $ptr(obj:int, off:int) returns (int) {obj + off}");
-  D("function $obj(int) returns (int);");
-  D("function {:inline} $off(ptr:int) returns (int) {ptr}");
+  D("function $base(int) returns (int);");
 
   D("const unique $NULL: int;");
   D("axiom $NULL == 0;");
@@ -205,7 +201,7 @@ void __SMACK_decls() {
     "ensures $Size[p] == n;\n"
     "ensures (forall q: int :: {$Size[q]} q != p ==> $Size[q] == old($Size[q]));\n"
     "ensures (forall q: int :: {$Alloc[q]} q != p ==> $Alloc[q] == old($Alloc[q]));\n"
-    "ensures n >= 0 ==> (forall q: int :: {$obj(q)} p <= q && q < p+n ==> $obj(q) == p);");
+    "ensures n >= 0 ==> (forall q: int :: {$base(q)} p <= q && q < p+n ==> $base(q) == p);");
 
   D("procedure $free(p: int);\n"
     "modifies $Alloc;\n"
@@ -221,7 +217,7 @@ void __SMACK_decls() {
     "ensures $Size[p] == n;\n"
     "ensures (forall q: int :: {$Size[q]} q != p ==> $Size[q] == old($Size[q]));\n"
     "ensures (forall q: int :: {$Alloc[q]} q != p ==> $Alloc[q] == old($Alloc[q]));\n"
-    "ensures n >= 0 ==> (forall q: int :: {$obj(q)} p <= q && q < p+n ==> $obj(q) == p);");
+    "ensures n >= 0 ==> (forall q: int :: {$base(q)} p <= q && q < p+n ==> $base(q) == p);");
 
 #else // NO_REUSE does not reuse previously-allocated addresses
   D("var $Alloc: [int] bool;");
@@ -235,7 +231,7 @@ void __SMACK_decls() {
     "ensures n >= 0 ==> $CurrAddr >= old($CurrAddr) + n;\n"
     "ensures $Alloc[p];\n"
     "ensures (forall q: int :: {$Alloc[q]} q != p ==> $Alloc[q] == old($Alloc[q]));\n"
-    "ensures n >= 0 ==> (forall q: int :: {$obj(q)} p <= q && q < p+n ==> $obj(q) == p);");
+    "ensures n >= 0 ==> (forall q: int :: {$base(q)} p <= q && q < p+n ==> $base(q) == p);");
 
   D("procedure $free(p: int);\n"
     "modifies $Alloc;\n"
@@ -250,7 +246,7 @@ void __SMACK_decls() {
     "ensures n >= 0 ==> $CurrAddr >= old($CurrAddr) + n;\n"
     "ensures $Alloc[p];\n"
     "ensures (forall q: int :: {$Alloc[q]} q != p ==> $Alloc[q] == old($Alloc[q]));\n"
-    "ensures n >= 0 ==> (forall q: int :: {$obj(q)} p <= q && q < p+n ==> $obj(q) == p);");
+    "ensures n >= 0 ==> (forall q: int :: {$base(q)} p <= q && q < p+n ==> $base(q) == p);");
 #endif
 
 #undef D
