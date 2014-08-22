@@ -10,7 +10,7 @@ import argparse
 import platform
 from smackgen import *
 
-VERSION = '1.4.0'
+VERSION = '1.4.1'
 
 
 def generateSourceErrorTrace(boogieOutput, bpl):
@@ -113,6 +113,8 @@ if __name__ == '__main__':
                       help='Boogie time limit in seconds')
   parser.add_argument('--smackd', dest='smackd', action="store_true", default=False,
                       help='output JSON format for SMACKd')
+  parser.add_argument('--outputdir', dest='outputdir', default='./',
+                      help='specify the directory where the temporary files are placed')
 
   args = parser.parse_args() # just check if arguments are looking good
 
@@ -125,20 +127,26 @@ if __name__ == '__main__':
     elif sysArgv[i].endswith('.c') or sysArgv[i].endswith('.i'):
       longfileName = sysArgv[i]
       longfileName = longfileName.split('/')
-      #shortfileName = longfileName[len(longfileName)-1].split('.c')[0]
       shortfileName = path.splitext(longfileName[len(longfileName)-1])[0]
 
       boogiedirName = args.outputdir+'/BPL_'+longfileName[len(longfileName)-2]+'/'
       cbcdirName = args.outputdir+'/CBC_'+longfileName[len(longfileName)-2]+'/'
+      corraldirName = boogiedirName+'/CORRAL_'+shortfileName+'/'
 
       if(not os.path.exists(boogiedirName)):
         os.system("mkdir "+boogiedirName)
       if(not os.path.exists(cbcdirName)):
         os.system("mkdir "+cbcdirName) 
+      if(not os.path.exists(corraldirName)):
+        os.system("mkdir "+corraldirName)
 
       sysArgv[i] = cbcdirName+shortfileName+'.c'
 
     elif sys.argv[i] == '--time-limit':
+      del sysArgv[i]
+      del sysArgv[i]
+
+    elif sys.argv[i] == '--outputdir':
       del sysArgv[i]
       del sysArgv[i]
 
@@ -148,6 +156,8 @@ if __name__ == '__main__':
   f = open(cbcdirName+shortfileName+'.c', 'w')
   f.write(inputStr)
   f.close()
+
+  sysArgv = sysArgv + ['--bc'] + [cbcdirName+shortfileName+'.bc'] + ['-o']+ [boogiedirName+shortfileName+'.bpl']
 
 
   bpl, options, dummyClangOutput = smackGenerate(sysArgv)#
@@ -176,6 +186,9 @@ if __name__ == '__main__':
       print boogieOutput
   else:
     # invoke Corral
+    os.chdir(corraldirName)
+    os.system("cp "+args.outfile.name+" "+shortfileName+'.bpl')
+    args.outfile = open(shortfileName+'.bpl',"r")
     p = subprocess.Popen(['corral', args.outfile.name, '/recursionBound:' + str(args.unroll), '/tryCTrace'], stdout=subprocess.PIPE)
     corralOutput = p.communicate()[0]
     if p.returncode:
