@@ -184,7 +184,7 @@ if __name__ == '__main__':
       print sourceTrace
     else:
       print boogieOutput
-  else:
+  elif args.verifier == 'corral':
     # invoke Corral
     os.chdir(corraldirName)
     os.system("cp "+args.outfile.name+" "+shortfileName+'.bpl')
@@ -198,4 +198,20 @@ if __name__ == '__main__':
       smackdOutput(corralOutput)
     else:
       print corralOutput
+  else:
+    # invoke Duality
+    os.chdir(corraldirName)
+    os.system("cp "+args.outfile.name+" "+shortfileName+'.bpl')
+    args.outfile = open(shortfileName+'.bpl',"r")
+    dualityCommand = ['corral', args.outfile.name, '/tryCTrace', '/useDuality']
+    dualityCommand += ['/recursionBound:10000'] # hack for providing infinite recursion bound
+    p = subprocess.Popen(dualityCommand, stdout=subprocess.PIPE)
+    dualityOutput = p.communicate()[0]
+    if p.returncode:
+      print dualityOutput
+      sys.exit("SMACK encountered an error invoking Duality. Exiting...")
+    if args.smackd:
+      smackdOutput(dualityOutput)
+    else:
+      print dualityOutput
 
