@@ -1,13 +1,14 @@
 //
-// Copyright (c) 2008 Zvonimir Rakamaric (zvonimir@cs.utah.edu)
 // This file is distributed under the MIT License. See LICENSE for details.
 //
+#define DEBUG_TYPE "smack-inst-gen"
 #include "smack/SmackInstGenerator.h"
 #include "smack/SmackOptions.h"
-#include "llvm/InstVisitor.h"
-#include "llvm/DebugInfo.h"
+#include "smack/Slicing.h"
+#include "llvm/IR/InstVisitor.h"
+#include "llvm/IR/DebugInfo.h"
 #include "llvm/Support/Debug.h"
-#include "llvm/Support/GetElementPtrTypeIterator.h"
+#include "llvm/IR/GetElementPtrTypeIterator.h"
 #include "llvm/Support/GraphWriter.h"
 #include <sstream>
 
@@ -22,9 +23,9 @@ const bool CODE_WARN = true;
 const bool SHOW_ORIG = false;
 
 #define WARN(str) \
-    if (CODE_WARN) currBlock->addStmt(Stmt::comment(string("WARNING: ") + str))
+    if (CODE_WARN) emit(Stmt::comment(string("WARNING: ") + str))
 #define ORIG(ins) \
-    if (SHOW_ORIG) currBlock->addStmt(Stmt::comment(i2s(ins)))
+    if (SHOW_ORIG) emit(Stmt::comment(i2s(ins)))
 
 Regex VAR_DECL("^[[:space:]]*var[[:space:]]+([[:alpha:]_.$#'`~^\\?][[:alnum:]_.$#'`~^\\?]*):.*;");
 
@@ -37,33 +38,22 @@ string i2s(llvm::Instruction& i) {
 }
 
 Block* SmackInstGenerator::createBlock() {
-  stringstream s;
-  s << SmackRep::BLOCK_LBL << blockNum++;
-  Block* b = new Block(proc, s.str());
-  proc.addBlock(b);
+  Block* b = new Block(naming.freshBlockName());
+  addBlock(b);
   return b;
 }
 
-string SmackInstGenerator::createVar() {
-  stringstream s;
-  s << "$x" << varNum++;
-  string name = s.str();
-  proc.addDecl(Decl::variable(name, rep.getPtrType()));
-  return name;
+Block* SmackInstGenerator::getBlock(llvm::BasicBlock* bb) {
+  if (blockMap.count(bb) == 0)
+    blockMap[bb] = createBlock();
+  return blockMap[bb];
 }
 
 void SmackInstGenerator::nameInstruction(llvm::Instruction& inst) {
-  if (!inst.getType()->isVoidTy()) {
-    if (!inst.hasName() || !rep.isSmackGeneratedName(inst.getName())) {
-      if (rep.isBool(&inst))
-        inst.setName(SmackRep::BOOL_VAR);
-      else if (rep.isFloat(&inst))
-        inst.setName(SmackRep::FLOAT_VAR);
-      else
-        inst.setName(SmackRep::PTR_VAR);
-    }
-    proc.addDecl(Decl::variable(rep.id(&inst), rep.type(&inst)));
-  }
+  if (inst.getType()->isVoidTy())
+    return;
+
+  addDecl(Decl::variable(naming.get(inst), rep.type(&inst)));
 }
 
 void SmackInstGenerator::annotate(llvm::Instruction& i, Block* b) {
@@ -82,10 +72,13 @@ void SmackInstGenerator::annotate(llvm::Instruction& i, Block* b) {
 
 void SmackInstGenerator::processInstruction(llvm::Instruction& inst) {
   DEBUG(errs() << "Inst: " << inst << "\n");
-  DEBUG(errs() << "Inst name: " << inst.getName().str() << "\n");
   annotate(inst, currBlock);
   ORIG(inst);
   nameInstruction(inst);
+}
+
+void SmackInstGenerator::visitBasicBlock(llvm::BasicBlock& bb) {
+  currBlock = getBlock(&bb);
 }
 
 void SmackInstGenerator::visitInstruction(llvm::Instruction& inst) {
@@ -107,8 +100,7 @@ void SmackInstGenerator::generatePhiAssigns(llvm::TerminatorInst& ti) {
             phi->getIncomingValueForBlock(block)) {
 
         nameInstruction(*phi);
-        currBlock->addStmt(Stmt::assign(
-                             rep.expr(phi), rep.expr(v)));
+        emit(Stmt::assign(rep.expr(phi), rep.expr(v)));
       }
     }
   }
@@ -116,7 +108,7 @@ void SmackInstGenerator::generatePhiAssigns(llvm::TerminatorInst& ti) {
 
 void SmackInstGenerator::generateGotoStmts(
   llvm::Instruction& inst,
-  vector<pair<const Expr*, string> > targets) {
+  vector<pair<const Expr*, llvm::BasicBlock*> > targets) {
 
   assert(targets.size() > 0);
 
@@ -124,17 +116,27 @@ void SmackInstGenerator::generateGotoStmts(
     vector<string> dispatch;
 
     for (unsigned i = 0; i < targets.size(); i++) {
-      Block* b = createBlock();
-      annotate(inst, b);
-      b->addStmt(Stmt::assume(targets[i].first));
-      b->addStmt(Stmt::goto_(targets[i].second));
-      dispatch.push_back(b->getName());
+      const Expr* condition = targets[i].first;
+      llvm::BasicBlock* target = targets[i].second;
+
+      if (target->getUniquePredecessor() == inst.getParent()) {
+        Block* b = getBlock(target);
+        b->insert(Stmt::assume(condition));
+        dispatch.push_back(b->getName());
+
+      } else {
+        Block* b = createBlock();
+        annotate(inst, b);
+        b->addStmt(Stmt::assume(condition));
+        b->addStmt(Stmt::goto_(getBlock(target)->getName()));
+        dispatch.push_back(b->getName());
+      }
     }
 
-    currBlock->addStmt(Stmt::goto_(dispatch));
+    emit(Stmt::goto_(dispatch));
 
   } else
-    currBlock->addStmt(Stmt::goto_(targets[0].second));
+    emit(Stmt::goto_(getBlock(targets[0].second)->getName()));
 }
 
 /******************************************************************************/
@@ -144,38 +146,37 @@ void SmackInstGenerator::generateGotoStmts(
 void SmackInstGenerator::visitReturnInst(llvm::ReturnInst& ri) {
   processInstruction(ri);
 
-  if (llvm::Value* v = ri.getReturnValue())
-    currBlock->addStmt(Stmt::assign(
-                         Expr::id(SmackRep::RET_VAR), rep.expr(v)));
+  llvm::Value* v = ri.getReturnValue();
 
-  currBlock->addStmt(Stmt::return_());
+  if (proc.isProc()) {
+    if (v)
+      emit(Stmt::assign(Expr::id(Naming::RET_VAR), rep.expr(v)));
+    emit(Stmt::assign(Expr::id(Naming::EXN_VAR), Expr::lit(false)));
+    emit(Stmt::return_());
+  } else {
+    assert (v && "Expected return value.");
+    emit(Stmt::return_(rep.expr(v)));
+  }
 }
 
 void SmackInstGenerator::visitBranchInst(llvm::BranchInst& bi) {
   processInstruction(bi);
 
   // Collect the list of tarets
-  vector<pair<const Expr*, string> > targets;
+  vector<pair<const Expr*, llvm::BasicBlock*> > targets;
 
   if (bi.getNumSuccessors() == 1) {
 
     // Unconditional branch
-    assert(blockMap.count(bi.getSuccessor(0)) != 0);
-    targets.push_back(make_pair(Expr::lit(true),
-                                blockMap[bi.getSuccessor(0)]->getName()));
+    targets.push_back(make_pair(Expr::lit(true),bi.getSuccessor(0)));
 
   } else {
 
     // Conditional branch
     assert(bi.getNumSuccessors() == 2);
-    assert(blockMap.count(bi.getSuccessor(0)) != 0);
-    assert(blockMap.count(bi.getSuccessor(1)) != 0);
-
     const Expr* e = rep.expr(bi.getCondition());
-    targets.push_back(make_pair(e,
-                                blockMap[bi.getSuccessor(0)]->getName()));
-    targets.push_back(make_pair(Expr::not_(e),
-                                blockMap[bi.getSuccessor(1)]->getName()));
+    targets.push_back(make_pair(e,bi.getSuccessor(0)));
+    targets.push_back(make_pair(Expr::not_(e),bi.getSuccessor(1)));
   }
   generatePhiAssigns(bi);
   generateGotoStmts(bi, targets);
@@ -185,7 +186,7 @@ void SmackInstGenerator::visitSwitchInst(llvm::SwitchInst& si) {
   processInstruction(si);
 
   // Collect the list of tarets
-  vector<pair<const Expr*, string> > targets;
+  vector<pair<const Expr*, llvm::BasicBlock*> > targets;
 
   const Expr* e = rep.expr(si.getCondition());
   const Expr* n = Expr::lit(true);
@@ -193,28 +194,50 @@ void SmackInstGenerator::visitSwitchInst(llvm::SwitchInst& si) {
   for (llvm::SwitchInst::CaseIt
        i = si.case_begin(); i != si.case_begin(); ++i) {
 
-    assert(blockMap.count(i.getCaseSuccessor()) != 0);
     const Expr* v = rep.expr(i.getCaseValue());
-    targets.push_back(make_pair(Expr::eq(e, v),
-                                blockMap[i.getCaseSuccessor()]->getName()));
+    targets.push_back(make_pair(Expr::eq(e,v),i.getCaseSuccessor()));
 
     // Add the negation of this case to the default case
     n = Expr::and_(n, Expr::neq(e, v));
   }
 
   // The default case
-  assert(blockMap.count(si.getDefaultDest()) != 0);
-  targets.push_back(make_pair(n,
-                              blockMap[si.getDefaultDest()]->getName()));
+  targets.push_back(make_pair(n,si.getDefaultDest()));
 
   generatePhiAssigns(si);
   generateGotoStmts(si, targets);
 }
 
+void SmackInstGenerator::visitInvokeInst(llvm::InvokeInst& ii) {
+  processInstruction(ii);
+  llvm::Function* f = ii.getCalledFunction();
+  if (f) {
+    emit(rep.call(f, ii));
+  } else {
+    // assert(false && "unexpected invoke instruction.");
+    WARN("unsoundly ignoring invoke instruction... ");
+  }
+  vector<pair<const Expr*, llvm::BasicBlock*> > targets;
+  targets.push_back(make_pair(
+    Expr::not_(Expr::id(Naming::EXN_VAR)),
+    ii.getNormalDest()));
+  targets.push_back(make_pair(
+    Expr::id(Naming::EXN_VAR),
+    ii.getUnwindDest()));
+  generateGotoStmts(ii, targets);
+}
+
+void SmackInstGenerator::visitResumeInst(llvm::ResumeInst& ri) {
+  processInstruction(ri);
+  emit(Stmt::assign(Expr::id(Naming::EXN_VAR), Expr::lit(true)));
+  emit(Stmt::assign(Expr::id(Naming::EXN_VAL_VAR), rep.expr(ri.getValue())));
+  emit(Stmt::return_());
+}
+
 void SmackInstGenerator::visitUnreachableInst(llvm::UnreachableInst& ii) {
   processInstruction(ii);
   
-  currBlock->addStmt(Stmt::assume(Expr::lit(false)));
+  emit(Stmt::assume(Expr::lit(false)));
 }
 
 /******************************************************************************/
@@ -223,7 +246,7 @@ void SmackInstGenerator::visitUnreachableInst(llvm::UnreachableInst& ii) {
 
 void SmackInstGenerator::visitBinaryOperator(llvm::BinaryOperator& bo) {
   processInstruction(bo);
-  currBlock->addStmt(Stmt::assign(rep.expr(&bo), rep.op(&bo)));
+  emit(Stmt::assign(rep.expr(&bo), rep.op(&bo)));
 }
 
 /******************************************************************************/
@@ -236,7 +259,47 @@ void SmackInstGenerator::visitBinaryOperator(llvm::BinaryOperator& bo) {
 /*                  AGGREGATE                   OPERATIONS                    */
 /******************************************************************************/
 
-// TODO implement aggregate operations
+void SmackInstGenerator::visitExtractValueInst(llvm::ExtractValueInst& evi) {
+  processInstruction(evi);
+  const Expr* e = rep.expr(evi.getAggregateOperand());
+  for (unsigned i = 0; i < evi.getNumIndices(); i++)
+    e = Expr::fn("$extractvalue", e, Expr::lit((int)evi.getIndices()[i]));
+  emit(Stmt::assign(rep.expr(&evi),e));
+}
+
+void SmackInstGenerator::visitInsertValueInst(llvm::InsertValueInst& ivi) {
+  processInstruction(ivi);
+  const Expr* old = rep.expr(ivi.getAggregateOperand());
+  const Expr* res = rep.expr(&ivi);
+  const llvm::Type* t = ivi.getType();
+
+  for (unsigned i = 0; i < ivi.getNumIndices(); i++) {
+    unsigned idx = ivi.getIndices()[i];
+
+    unsigned num_elements;
+    if (const llvm::StructType* st = llvm::dyn_cast<const llvm::StructType>(t)) {
+      num_elements = st->getNumElements();
+      t = st->getElementType(idx);
+    } else if (const llvm::ArrayType* at = llvm::dyn_cast<const llvm::ArrayType>(t)) {
+      num_elements = at->getNumElements();
+      t = at->getElementType();
+    } else {
+      assert (false && "Unexpected aggregate type");
+    }
+
+    for (unsigned j = 0; j < num_elements; j++) {
+      if (j != idx) {
+        emit(Stmt::assume(Expr::eq(
+          Expr::fn("$extractvalue", res, Expr::lit((int)j)),
+          Expr::fn("$extractvalue", old, Expr::lit((int)j))
+        )));
+      }
+    }
+    res = Expr::fn("$extractvalue", res, Expr::lit((int)idx));
+    old = Expr::fn("$extractvalue", old, Expr::lit((int)idx));
+  }
+  emit(Stmt::assume(Expr::eq(res,rep.expr(ivi.getInsertedValueOperand()))));
+}
 
 /******************************************************************************/
 /*     MEMORY       ACCESS        AND       ADDRESSING       OPERATIONS       */
@@ -244,30 +307,40 @@ void SmackInstGenerator::visitBinaryOperator(llvm::BinaryOperator& bo) {
 
 void SmackInstGenerator::visitAllocaInst(llvm::AllocaInst& ai) {
   processInstruction(ai);
-  currBlock->addStmt(rep.alloca(ai));
+  emit(rep.alloca(ai));
 }
 
 void SmackInstGenerator::visitLoadInst(llvm::LoadInst& li) {
   processInstruction(li);
-  currBlock->addStmt(Stmt::assign(rep.expr(&li),rep.mem(li.getPointerOperand())));
+  const Expr* rhs = rep.mem(li.getPointerOperand());
+
+  if (rep.isFloat(&li))
+    rhs = Expr::fn("$si2fp", rhs);
+
+  emit(Stmt::assign(rep.expr(&li),rhs));
 
   if (SmackOptions::MemoryModelDebug) {
-    currBlock->addStmt(Stmt::call(SmackRep::REC_MEM_OP, Expr::id(SmackRep::MEM_OP_VAL)));
-    currBlock->addStmt(Stmt::call("boogie_si_record_int", Expr::lit(0)));
-    currBlock->addStmt(Stmt::call("boogie_si_record_int", rep.expr(li.getPointerOperand())));
-    currBlock->addStmt(Stmt::call("boogie_si_record_int", rep.expr(&li)));
+    emit(Stmt::call(SmackRep::REC_MEM_OP, Expr::id(SmackRep::MEM_OP_VAL)));
+    emit(Stmt::call("boogie_si_record_int", Expr::lit(0)));
+    emit(Stmt::call("boogie_si_record_int", rep.expr(li.getPointerOperand())));
+    emit(Stmt::call("boogie_si_record_int", rep.expr(&li)));
   }
 }
 
 void SmackInstGenerator::visitStoreInst(llvm::StoreInst& si) {
   processInstruction(si);
-  currBlock->addStmt(Stmt::assign(rep.mem(si.getPointerOperand()),rep.expr(si.getOperand(0))));
+  const Expr* rhs = rep.expr(si.getOperand(0));
+
+  if (rep.isFloat(si.getOperand(0)))
+    rhs = Expr::fn("$fp2si", rhs);
+
+  emit(Stmt::assign(rep.mem(si.getPointerOperand()),rhs));
                        
   if (SmackOptions::MemoryModelDebug) {
-    currBlock->addStmt(Stmt::call(SmackRep::REC_MEM_OP, Expr::id(SmackRep::MEM_OP_VAL)));
-    currBlock->addStmt(Stmt::call("boogie_si_record_int", Expr::lit(1)));
-    currBlock->addStmt(Stmt::call("boogie_si_record_int", rep.expr(si.getPointerOperand())));
-    currBlock->addStmt(Stmt::call("boogie_si_record_int", rep.expr(si.getOperand(0))));
+    emit(Stmt::call(SmackRep::REC_MEM_OP, Expr::id(SmackRep::MEM_OP_VAL)));
+    emit(Stmt::call("boogie_si_record_int", Expr::lit(1)));
+    emit(Stmt::call("boogie_si_record_int", rep.expr(si.getPointerOperand())));
+    emit(Stmt::call("boogie_si_record_int", rep.expr(si.getOperand(0))));
   }
 }
 
@@ -277,8 +350,8 @@ void SmackInstGenerator::visitAtomicCmpXchgInst(llvm::AtomicCmpXchgInst& i) {
   const Expr* ptr = rep.mem(i.getOperand(0));
   const Expr* cmp = rep.expr(i.getOperand(1));
   const Expr* swp = rep.expr(i.getOperand(2));
-  currBlock->addStmt(Stmt::assign(res,ptr));
-  currBlock->addStmt(Stmt::assign(ptr,Expr::cond(Expr::eq(ptr,cmp),swp,ptr)));
+  emit(Stmt::assign(res,ptr));
+  emit(Stmt::assign(ptr,Expr::cond(Expr::eq(ptr,cmp),swp,ptr)));
 }
 
 void SmackInstGenerator::visitAtomicRMWInst(llvm::AtomicRMWInst& i) {
@@ -328,8 +401,8 @@ void SmackInstGenerator::visitAtomicRMWInst(llvm::AtomicRMWInst& i) {
     assert(false && "unexpected atomic operation.");
   }  
   
-  currBlock->addStmt(Stmt::assign(res,mem));
-  currBlock->addStmt(Stmt::assign(mem,op));
+  emit(Stmt::assign(res,mem));
+  emit(Stmt::assign(mem,op));
 }
 
 void SmackInstGenerator::visitGetElementPtrInst(llvm::GetElementPtrInst& gepi) {
@@ -342,7 +415,7 @@ void SmackInstGenerator::visitGetElementPtrInst(llvm::GetElementPtrInst& gepi) {
     ps.push_back(gepi.getOperand(i));
     ts.push_back(*typeI);
   }
-  currBlock->addStmt(Stmt::assign(rep.expr(&gepi),
+  emit(Stmt::assign(rep.expr(&gepi),
                                   rep.ptrArith(gepi.getPointerOperand(), ps, ts)));
 }
 
@@ -352,67 +425,67 @@ void SmackInstGenerator::visitGetElementPtrInst(llvm::GetElementPtrInst& gepi) {
 
 void SmackInstGenerator::visitTruncInst(llvm::TruncInst& ti) {
   processInstruction(ti);
-  currBlock->addStmt(Stmt::assign(rep.expr(&ti),
+  emit(Stmt::assign(rep.expr(&ti),
     rep.trunc(ti.getOperand(0),ti.getType())));
 }
 
 void SmackInstGenerator::visitZExtInst(llvm::ZExtInst& ci) {
   processInstruction(ci);
-  currBlock->addStmt(Stmt::assign(rep.expr(&ci),
+  emit(Stmt::assign(rep.expr(&ci),
     rep.zext(ci.getOperand(0),ci.getType())));
 }
 
 void SmackInstGenerator::visitSExtInst(llvm::SExtInst& ci) {
   processInstruction(ci);
-  currBlock->addStmt(Stmt::assign(rep.expr(&ci),
+  emit(Stmt::assign(rep.expr(&ci),
     rep.sext(ci.getOperand(0),ci.getType())));
 }
 
 void SmackInstGenerator::visitFPTruncInst(llvm::FPTruncInst& i) {
   processInstruction(i);
-  currBlock->addStmt(Stmt::assign(rep.expr(&i),
+  emit(Stmt::assign(rep.expr(&i),
     rep.fptrunc(i.getOperand(0),i.getType())));  
 }
 
 void SmackInstGenerator::visitFPExtInst(llvm::FPExtInst& i) {
   processInstruction(i);
-  currBlock->addStmt(Stmt::assign(rep.expr(&i),
+  emit(Stmt::assign(rep.expr(&i),
     rep.fpext(i.getOperand(0),i.getType())));
 }
 
 void SmackInstGenerator::visitFPToUIInst(llvm::FPToUIInst& i) {
   processInstruction(i);
-  currBlock->addStmt(Stmt::assign(rep.expr(&i),rep.fp2ui(i.getOperand(0))));
+  emit(Stmt::assign(rep.expr(&i),rep.fp2ui(i.getOperand(0))));
 }
 
 void SmackInstGenerator::visitFPToSIInst(llvm::FPToSIInst& i) {
   processInstruction(i);
-  currBlock->addStmt(Stmt::assign(rep.expr(&i),rep.fp2si(i.getOperand(0))));
+  emit(Stmt::assign(rep.expr(&i),rep.fp2si(i.getOperand(0))));
 }
 
 void SmackInstGenerator::visitUIToFPInst(llvm::UIToFPInst& i) {
   processInstruction(i);
-  currBlock->addStmt(Stmt::assign(rep.expr(&i),rep.ui2fp(i.getOperand(0))));
+  emit(Stmt::assign(rep.expr(&i),rep.ui2fp(i.getOperand(0))));
 }
 
 void SmackInstGenerator::visitSIToFPInst(llvm::SIToFPInst& i) {
   processInstruction(i);
-  currBlock->addStmt(Stmt::assign(rep.expr(&i),rep.si2fp(i.getOperand(0))));
+  emit(Stmt::assign(rep.expr(&i),rep.si2fp(i.getOperand(0))));
 }
 
 void SmackInstGenerator::visitPtrToIntInst(llvm::PtrToIntInst& i) {
   processInstruction(i);
-  currBlock->addStmt(Stmt::assign(rep.expr(&i),rep.p2i(i.getOperand(0))));
+  emit(Stmt::assign(rep.expr(&i),rep.p2i(i.getOperand(0))));
 }
 
 void SmackInstGenerator::visitIntToPtrInst(llvm::IntToPtrInst& i) {
   processInstruction(i);
-  currBlock->addStmt(Stmt::assign(rep.expr(&i),rep.i2p(i.getOperand(0))));
+  emit(Stmt::assign(rep.expr(&i),rep.i2p(i.getOperand(0))));
 }
 
 void SmackInstGenerator::visitBitCastInst(llvm::BitCastInst& ci) {
   processInstruction(ci);
-  currBlock->addStmt(Stmt::assign(rep.expr(&ci),
+  emit(Stmt::assign(rep.expr(&ci),
     rep.bitcast(ci.getOperand(0),ci.getType())));
 }
 
@@ -422,12 +495,12 @@ void SmackInstGenerator::visitBitCastInst(llvm::BitCastInst& ci) {
 
 void SmackInstGenerator::visitICmpInst(llvm::ICmpInst& ci) {
   processInstruction(ci);
-  currBlock->addStmt(Stmt::assign(rep.expr(&ci), rep.pred(ci)));
+  emit(Stmt::assign(rep.expr(&ci), rep.pred(&ci)));
 }
 
 void SmackInstGenerator::visitFCmpInst(llvm::FCmpInst& ci) {
   processInstruction(ci);
-  currBlock->addStmt(Stmt::assign(rep.expr(&ci), rep.pred(ci)));
+  emit(Stmt::assign(rep.expr(&ci), rep.pred(&ci)));
 }
 
 void SmackInstGenerator::visitPHINode(llvm::PHINode& phi) {
@@ -438,14 +511,14 @@ void SmackInstGenerator::visitPHINode(llvm::PHINode& phi) {
 
 void SmackInstGenerator::visitSelectInst(llvm::SelectInst& i) {
   processInstruction(i);
-  string x = rep.id(&i);
+  string x = naming.get(i);
   const Expr
   *c = rep.expr(i.getOperand(0)),
    *v1 = rep.expr(i.getOperand(1)),
     *v2 = rep.expr(i.getOperand(2));
 
-  currBlock->addStmt(Stmt::havoc(x));
-  currBlock->addStmt(Stmt::assume(Expr::and_(
+  emit(Stmt::havoc(x));
+  emit(Stmt::assume(Expr::and_(
                                     Expr::impl(c, Expr::eq(Expr::id(x), v1)),
                                     Expr::impl(Expr::not_(c), Expr::eq(Expr::id(x), v2))
                                   )));
@@ -455,34 +528,71 @@ void SmackInstGenerator::visitCallInst(llvm::CallInst& ci) {
   processInstruction(ci);
   
   llvm::Function* f = ci.getCalledFunction();
+  string name = f && f->hasName() ? f->getName().str() : "";
 
   if (ci.isInlineAsm()) {
     WARN("unsoundly ignoring inline asm call: " + i2s(ci));
-    currBlock->addStmt(Stmt::skip());
+    emit(Stmt::skip());
     
-  } else if (f && rep.id(f).find("llvm.dbg.") != string::npos) {
+  } else if (name.find("llvm.dbg.") != string::npos) {
     WARN("ignoring llvm.debug call.");
-    currBlock->addStmt(Stmt::skip());
+    emit(Stmt::skip());
 
-  } else if (f && rep.id(f) == "__SMACK_mod") {
-    proc.addMod(rep.code(ci));
+  } else if (name.find("__SMACK_mod") != string::npos) {
+    addMod(rep.code(ci));
 
-  } else if (f && rep.id(f) == "__SMACK_code") {
-    currBlock->addStmt(Stmt::code(rep.code(ci)));
+  } else if (name.find("__SMACK_code") != string::npos) {
+    emit(Stmt::code(rep.code(ci)));
 
-  } else if (f && rep.id(f) == "__SMACK_decl") {
-    proc.addDecl(Decl::code(rep.code(ci)));
+  } else if (name.find("__SMACK_decl") != string::npos) {
+    addDecl(Decl::code(rep.code(ci)));
 
-  } else if (f && rep.id(f) == "__SMACK_top_decl") {
+  } else if (name.find("__SMACK_top_decl") != string::npos) {
     string decl = rep.code(ci);
-    proc.getProg().addDecl(Decl::code(decl));
+    addTopDecl(Decl::code(decl));
     if (VAR_DECL.match(decl)) {
       string var = VAR_DECL.sub("\\1",decl);
       rep.addBplGlobal(var);
     }
 
+  } else if (name == "result") {
+    assert(ci.getNumArgOperands() == 0 && "Unexpected operands to result.");
+    emit(Stmt::assign(rep.expr(&ci),Expr::id(Naming::RET_VAR)));
+
+  } else if (name == "qvar") {
+    assert(ci.getNumArgOperands() == 1 && "Unexpected operands to qvar.");
+    emit(Stmt::assign(rep.expr(&ci),Expr::id(rep.getString(ci.getArgOperand(0)))));
+
+  } else if (name == "old") {
+    assert(ci.getNumArgOperands() == 1 && "Unexpected operands to old.");
+    llvm::LoadInst* LI = llvm::dyn_cast<llvm::LoadInst>(ci.getArgOperand(0));
+    assert(LI && "Expected value from Load.");
+    emit(Stmt::assign(rep.expr(&ci),
+      Expr::fn("old",rep.mem(LI->getPointerOperand())) ));
+
+  } else if (name == "forall") {
+    assert(ci.getNumArgOperands() == 2 && "Unexpected operands to forall.");
+    Value* var = ci.getArgOperand(0);
+    Value* arg = ci.getArgOperand(1);
+    Slice* S = getSlice(arg);
+    emit(Stmt::assign(rep.expr(&ci),
+      Expr::forall(rep.getString(var), "int", S->getBoogieExpression(naming,rep))));
+
+  } else if (name == "exists") {
+    assert(ci.getNumArgOperands() == 2 && "Unexpected operands to forall.");
+    Value* var = ci.getArgOperand(0);
+    Value* arg = ci.getArgOperand(1);
+    Slice* S = getSlice(arg);
+    emit(Stmt::assign(rep.expr(&ci),
+      Expr::exists(rep.getString(var), "int", S->getBoogieExpression(naming,rep))));
+
+  } else if (name == "invariant") {
+    assert(ci.getNumArgOperands() == 1 && "Unexpected operands to invariant.");
+    Slice* S = getSlice(ci.getArgOperand(0));
+    emit(Stmt::assert_(S->getBoogieExpression(naming,rep)));
+
   } else if (f) {
-    currBlock->addStmt(rep.call(f, ci));
+    emit(rep.call(f, ci));
 
   } else {
     // function pointer call...
@@ -497,9 +607,9 @@ void SmackInstGenerator::visitCallInst(llvm::CallInst& ci) {
       if (ce->isCast()) {
         llvm::Value* castValue = ce->getOperand(0);
         if (llvm::Function* castFunc = llvm::dyn_cast<llvm::Function>(castValue)) {
-          currBlock->addStmt(rep.call(castFunc, ci));
+          emit(rep.call(castFunc, ci));
           if (castFunc->isDeclaration() && rep.isExternal(&ci))
-            currBlock->addStmt(Stmt::assume(Expr::fn("$isExternal",rep.expr(&ci))));
+            emit(Stmt::assume(Expr::fn("$isExternal",rep.expr(&ci))));
           return;
         }
       }
@@ -519,7 +629,7 @@ void SmackInstGenerator::visitCallInst(llvm::CallInst& ci) {
 
     if (fs.size() == 1) {
       // Q: is this case really possible?
-      currBlock->addStmt(rep.call(fs[0], ci));
+      emit(rep.call(fs[0], ci));
 
     } else if (fs.size() > 1) {
       Block* tail = createBlock();
@@ -537,7 +647,7 @@ void SmackInstGenerator::visitCallInst(llvm::CallInst& ci) {
       }
 
       // Jump to the dispatch blocks.
-      currBlock->addStmt(Stmt::goto_(targets));
+      emit(Stmt::goto_(targets));
 
       // Update the current block for subsequent visits.
       currBlock = tail;
@@ -546,12 +656,21 @@ void SmackInstGenerator::visitCallInst(llvm::CallInst& ci) {
       // In the worst case, we have no idea what function may have
       // been called...
       WARN("unsoundly ignoring indeterminate call: " + i2s(ci));
-      currBlock->addStmt(Stmt::skip());
+      emit(Stmt::skip());
     }
   }
 
   if (f && f->isDeclaration() && rep.isExternal(&ci))
-    currBlock->addStmt(Stmt::assume(Expr::fn("$isExternal",rep.expr(&ci))));
+    emit(Stmt::assume(Expr::fn("$isExternal",rep.expr(&ci))));
+}
+
+void SmackInstGenerator::visitLandingPadInst(llvm::LandingPadInst& lpi) {
+  processInstruction(lpi);
+  // TODO what exactly!?
+  emit(Stmt::assign(rep.expr(&lpi),Expr::id(Naming::EXN_VAL_VAR)));
+  if (lpi.isCleanup())
+    emit(Stmt::assign(Expr::id(Naming::EXN_VAR),Expr::lit(false)));
+  WARN("unsoundly ignoring landingpad clauses...");
 }
 
 /******************************************************************************/
@@ -561,13 +680,13 @@ void SmackInstGenerator::visitCallInst(llvm::CallInst& ci) {
 void SmackInstGenerator::visitMemCpyInst(llvm::MemCpyInst& mci) {
   processInstruction(mci);
   assert (mci.getNumOperands() == 6);
-  currBlock->addStmt(rep.memcpy(mci));
+  emit(rep.memcpy(mci));
 }
 
 void SmackInstGenerator::visitMemSetInst(llvm::MemSetInst& msi) {
   processInstruction(msi);
   assert (msi.getNumOperands() == 6);
-  currBlock->addStmt(rep.memset(msi));
+  emit(rep.memset(msi));
 }
 
 } // namespace smack

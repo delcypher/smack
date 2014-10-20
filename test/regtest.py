@@ -5,11 +5,14 @@ import re
 import argparse
 import time
 from collections import namedtuple
+import os.path
 
 RegTest = namedtuple('RegTest', 'name boogie corral duality unroll')
 
 # list of regression tests with the expected outputs
 tests = [
+  RegTest('hello',                 r'1 verified, 0 errors?', r'Program has no bugs', r'Program has no bugs', 2),
+  RegTest('hello_fail',            r'0 verified, 1 errors?', r'This assertion can fail', r'This assertion can fail', 2),
   RegTest('simple',                r'1 verified, 0 errors?', r'Program has no bugs', r'Program has no bugs', 2),
   RegTest('simple_fail',           r'0 verified, 1 errors?', r'This assertion can fail', r'This assertion can fail', 2),
   RegTest('simple_pre',            r'1 verified, 0 errors?', r'Program has no bugs', r'Program has no bugs', 2),
@@ -89,7 +92,9 @@ tests = [
   RegTest('two_arrays4',           r'1 verified, 0 errors?', r'Program has no bugs', r'Program has no bugs', 2),
   RegTest('two_arrays5',           r'1 verified, 0 errors?', r'Program has no bugs', r'Program has no bugs', 2),
   RegTest('two_arrays6',           r'1 verified, 0 errors?', r'Program has no bugs', r'Program has no bugs', 2),
-  RegTest('two_arrays6_fail',      r'0 verified, 1 errors?', r'This assertion can fail', r'This assertion can fail', 2)
+  RegTest('two_arrays6_fail',      r'0 verified, 1 errors?', r'This assertion can fail', r'This assertion can fail', 2),
+  RegTest('floats_in_memory',      r'1 verified, 0 errors?', r'Program has no bugs', r'Program has no bugs', 2),
+  RegTest('floats_in_memory_fail', r'0 verified, 1 errors?', r'This assertion can fail', r'This assertion can fail', 2)
 ]
 
 def red(text):
@@ -106,9 +111,16 @@ def runtests(verifier):
     
       print "{0:>25} {1:>16}:".format(test.name, "(" + mem + ")"),
 
+      if os.path.isfile(test.name + '.c'):
+        sourceFile = test.name + '.c'
+      elif os.path.isfile(test.name + '.cc'):
+        sourceFile = test.name + '.cc'
+      elif os.path.isfile(test[0] + '.cpp'):
+        sourceFile = test.name + '.cpp'
+
       # invoke SMACK
       t0 = time.time()
-      p = subprocess.Popen(['smackverify.py', test.name + '.c', '--verifier=' + verifier,
+      p = subprocess.Popen(['smackverify.py', sourceFile, '--verifier=' + verifier,
                             '--unroll=' + str(test.unroll), '--mem-mod=' + mem, '-o', test.name +'.bpl'],
                             stdout=subprocess.PIPE)
       

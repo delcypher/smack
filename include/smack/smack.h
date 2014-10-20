@@ -1,6 +1,4 @@
 //
-// Copyright (c) 2013 Zvonimir Rakamaric (zvonimir@cs.utah.edu),
-//                    Michael Emmi (michael.emmi@gmail.com)
 // This file is distributed under the MIT License. See LICENSE for details.
 //
 #ifndef SMACK_H_
@@ -35,14 +33,16 @@ void __SMACK_mod(const char *fmt, ...);
 void __SMACK_decl(const char *fmt, ...);
 void __SMACK_top_decl(const char *fmt, ...);
 
-void __SMACK_assert(int v) {
-  __SMACK_code("assert {@} != 0;", v);
+void assert(int v) {
+  __SMACK_code("assert @ != 0;", v);
 }
 
-void __SMACK_assume(int v) {
-  __SMACK_code("assume {@} != 0;", v);
+void assume(int v) {
+  __SMACK_code("assume @ != 0;", v);
 }
 
+//// PROBLEM: in the 2D memory model, the declaration of boogie_si_record_int
+//// should have a type $ptr parameter, not an int.  How should we do this?
 // void __SMACK_record_int(int i) {
 //   __SMACK_top_decl("procedure boogie_si_record_int(i:int);");
 //   __SMACK_code("call boogie_si_record_int(@);", i);
@@ -102,7 +102,7 @@ void __SMACK_decls() {
 
   // Floating point
   D("type float;");
-  D("function $fp(a:int) returns (float);");
+  D("function $fp(ipart:int, fpart:int, epart:int) returns (float);");
   D("const $ffalse: float;");
   D("const $ftrue: float;");
   D("function $fadd(f1:float, f2:float) returns (float);");
@@ -128,6 +128,12 @@ void __SMACK_decls() {
   D("function $fp2ui(f:float) returns (int);");
   D("function $si2fp(i:int) returns (float);");
   D("function $ui2fp(i:int) returns (float);");
+
+  D("axiom (forall f1, f2: float :: f1 != f2 || $foeq(f1,f2));");
+  D("axiom (forall i: int :: $fp2ui($ui2fp(i)) == i);");
+  D("axiom (forall f: float :: $ui2fp($fp2ui(f)) == f);");
+  D("axiom (forall i: int :: $fp2si($si2fp(i)) == i);");
+  D("axiom (forall f: float :: $si2fp($fp2si(f)) == f);");
 
   // Memory Model
   D("function $base(int) returns (int);");
@@ -248,6 +254,10 @@ void __SMACK_decls() {
     "ensures (forall q: int :: {$Alloc[q]} q != p ==> $Alloc[q] == old($Alloc[q]));\n"
     "ensures n >= 0 ==> (forall q: int :: {$base(q)} p <= q && q < p+n ==> $base(q) == p);");
 #endif
+
+  D("var $exn: bool;");
+  D("var $exnv: int;");
+  D("function $extractvalue(p: int, i: int) returns (int);");
 
 #undef D
 }

@@ -1,4 +1,7 @@
-#! /usr/bin/env python
+#!/usr/bin/env python
+#
+# This file is distributed under the MIT License. See LICENSE for details.
+#
 
 from os import path
 import json
@@ -19,8 +22,6 @@ def verifyParser():
                       help='Boogie time limit in seconds')
   parser.add_argument('--smackd', dest='smackd', action="store_true", default=False,
                       help='output JSON format for SMACKd')
-  parser.add_argument('--sound-unroll', dest='soundUnroll', action="store_true", default=False,
-                      help='soundly unroll loops in Boogie')
   return parser
 
 
@@ -119,19 +120,18 @@ def smackdOutput(corralOutput):
   json_string = json.dumps(json_data)
   print json_string
 
-def verify(verifier, bplFileName, timeLimit, unroll, debug, smackd, soundUnroll):
+def verify(verifier, bplFileName, timeLimit, unroll, debug, smackd):
   if verifier == 'boogie':
     # invoke Boogie
     boogieCommand = ['boogie', bplFileName, '/nologo', '/timeLimit:' + str(timeLimit)]
     if unroll is not None:
       boogieCommand += ['/loopUnroll:' + str(unroll)]
-      if soundUnroll:
-        boogieCommand += ['/soundLoopUnrolling']
-    p = subprocess.Popen(boogieCommand, stdout=subprocess.PIPE)
+    p = subprocess.Popen(boogieCommand, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     boogieOutput = p.communicate()[0]
+
     if p.returncode:
-      return boogieOutput
-      sys.exit("SMACK encountered an error invoking Boogie. Exiting...")
+      print >> sys.stderr, boogieOutput
+      sys.exit("SMACK encountered an error when invoking Boogie. Exiting...")
     if debug:
       return boogieOutput
     sourceTrace = generateSourceErrorTrace(boogieOutput, bplFileName)
@@ -144,11 +144,12 @@ def verify(verifier, bplFileName, timeLimit, unroll, debug, smackd, soundUnroll)
     corralCommand = ['corral', bplFileName, '/tryCTrace']
     if unroll is not None:
       corralCommand += ['/recursionBound:' + str(unroll)]
-    p = subprocess.Popen(corralCommand, stdout=subprocess.PIPE)
+    p = subprocess.Popen(corralCommand, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     corralOutput = p.communicate()[0]
+
     if p.returncode:
-      return corralOutput
-      sys.exit("SMACK encountered an error invoking Corral. Exiting...")
+      print >> sys.stderr, corralOutput
+      sys.exit("SMACK encountered an error when invoking Corral. Exiting...")
     if smackd:
       smackdOutput(corralOutput)
     else:
@@ -157,11 +158,12 @@ def verify(verifier, bplFileName, timeLimit, unroll, debug, smackd, soundUnroll)
     # invoke Duality
     dualityCommand = ['corral', bplFileName, '/tryCTrace', '/useDuality']
     dualityCommand += ['/recursionBound:10000'] # hack for providing infinite recursion bound
-    p = subprocess.Popen(dualityCommand, stdout=subprocess.PIPE)
+    p = subprocess.Popen(dualityCommand, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     dualityOutput = p.communicate()[0]
+
     if p.returncode:
-      return dualityOutput
-      sys.exit("SMACK encountered an error invoking Duality. Exiting...")
+      print >> sys.stderr, dualityOutput
+      sys.exit("SMACK encountered an error when invoking Duality. Exiting...")
     if smackd:
       smackdOutput(dualityOutput)
     else:
@@ -191,5 +193,5 @@ if __name__ == '__main__':
     outputFile.write(bpl)
     outputFile.close()
 
-  print(verify(args.verifier, args.outfile, args.timeLimit, args.unroll, args.debug, args.smackd, args.soundUnroll))
+  print(verify(args.verifier, args.outfile, args.timeLimit, args.unroll, args.debug, args.smackd))
 

@@ -1,4 +1,7 @@
-#! /usr/bin/env python
+#!/usr/bin/env python
+#
+# This file is distributed under the MIT License. See LICENSE for details.
+#
 
 from os import path
 import sys
@@ -50,11 +53,19 @@ def clang(scriptPathName, inputFile, bcFileName, outputFileName, memoryModel, cl
   smackRoot = path.dirname(scriptFullPath)
   smackHeaders = path.join(smackRoot, 'include', 'smack')
 
+  fileName, fileExtension = path.splitext(path.basename(inputFile.name))
+
   if bcFileName is None:
     bcFileName = path.join(path.dirname(path.abspath(outputFileName)),
-      path.splitext(path.basename(inputFile.name))[0]) + '.bc'
+      fileName) + '.bc'
 
-  clangCommand = ['clang']
+  if fileExtension in ['.c']:
+    clangCommand = ['clang']
+  elif fileExtension in ['.cc', '.cpp']:
+    clangCommand = ['clang++']
+  else:
+    sys.exit('Unexpected source file extension `' + fileExtension + '\'')
+
   clangCommand += ['-c', '-emit-llvm', '-O0', '-g', '-gcolumn-info',
                    '-DMEMORY_MODEL_' + memoryModel.upper().replace('-','_'),
                    '-I' + smackHeaders]
@@ -65,12 +76,11 @@ def clang(scriptPathName, inputFile, bcFileName, outputFileName, memoryModel, cl
   #However, this will be problematic if any callers want to differentiate
   #    between clangs stdout and stderr.
   p = subprocess.Popen(clangCommand, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-  clangStdout, clangStderr = p.communicate()
-  clangOutput = clangStdout
+  clangOutput = p.communicate()[0]
 
-  if p.returncode != 0:
-    print clangOutput
-    sys.exit("SMACK encountered a clang error. Exiting...")
+  if p.returncode:
+    print >> sys.stderr, clangOutput
+    sys.exit("SMACK encountered an error when invoking clang. Exiting...")
 
   inputFile = open(bcFileName, 'r')
   return inputFile, clangOutput
@@ -87,7 +97,7 @@ def smackGenerate(sysArgv):
 
   fileExtension = path.splitext(inputFile.name)[1]
   options = []
-  if fileExtension == '.c':
+  if fileExtension in ['.c','.cc','.cpp']:
     # if input file is .c, then search for options in comments and compile it with clang
     lines = inputFile.readlines()
     for line in lines:
@@ -97,16 +107,27 @@ def smackGenerate(sysArgv):
         args = parser.parse_args(options + sysArgv[1:])
     inputFile, clangOutput = clang(scriptPathName, inputFile, args.bcfile, args.outfile, args.memmod, args.clang)
 
+  elif fileExtension in ['.bc', '.ll']:
+    pass # do nothing
+  else:
+    sys.exit('Unexpected source file extension `' + fileExtension + '\'')
+
   bpl = llvm2bpl(inputFile, args.outfile, args.debug, "impls" in args.memmod)
   inputFile.close()
 
   p = re.compile('procedure\s+([^\s(]*)\s*\(')
-  if args.verifier == 'boogie' and args.unroll is not None:
+  si = re.compile('procedure\s+(\$static_init|__SMACK_.*|assert_|assume_|__VERIFIER_.*)\s*\(')
+
+  if args.verifier == 'boogie' and args.unroll is None:
+    bpl = si.sub(lambda match: addInline(match, args.entryPoints, 1), bpl)
+
+  elif args.verifier == 'boogie':
     # put inline on procedures
     bpl = p.sub(lambda match: addInline(match, args.entryPoints, args.unroll), bpl)
   elif args.verifier == 'corral' or args.verifier == 'duality':
     # annotate entry points
     bpl = p.sub(lambda match: addEntryPoint(match, args.entryPoints), bpl)
+
   return bpl, options, clangOutput
 
 

@@ -1,19 +1,18 @@
 //
-// Copyright (c) 2013 Zvonimir Rakamaric (zvonimir@cs.utah.edu),
-//                    Michael Emmi (michael.emmi@gmail.com)
 // This file is distributed under the MIT License. See LICENSE for details.
 //
 #ifndef SMACKREP_H
 #define SMACKREP_H
 
+#include "smack/Naming.h"
 #include "smack/BoogieAst.h"
 #include "smack/SmackOptions.h"
 #include "smack/DSAAliasAnalysis.h"
-#include "llvm/InstVisitor.h"
+#include "llvm/IR/InstVisitor.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/InstrTypes.h"
 #include "llvm/Support/Debug.h"
-#include "llvm/Support/GetElementPtrTypeIterator.h"
+#include "llvm/IR/GetElementPtrTypeIterator.h"
 #include "llvm/Support/GraphWriter.h"
 #include "llvm/Support/Regex.h"
 #include <sstream>
@@ -28,11 +27,6 @@ using namespace std;
   
 class SmackRep {
 public:
-  static const string BLOCK_LBL;
-  static const string RET_VAR;
-  static const string BOOL_VAR;
-  static const string FLOAT_VAR;
-  static const string PTR_VAR;
   static const string BOOL_TYPE;
   static const string FLOAT_TYPE;
   static const string NULL_VAL;
@@ -125,23 +119,25 @@ public:
 
 protected:
   DSAAliasAnalysis* aliasAnalysis;
+  Naming& naming;
+  Program& program;
   vector<string> bplGlobals;
   vector< pair<const llvm::Value*, bool> > memoryRegions;
   const llvm::DataLayout* targetData;
-  Program* program;
   int globalsBottom;
   
   vector<const Stmt*> staticInits;
   
   unsigned uniqueFpNum;
-  unsigned uniqueUndefNum;
 
 public:
-  SmackRep(DSAAliasAnalysis* aa)
-    : aliasAnalysis(aa), targetData(aa->getDataLayout()), globalsBottom(0) {
+  SmackRep(DSAAliasAnalysis* aa, Naming& N, Program& P)
+    : aliasAnalysis(aa), naming(N), program(P),
+      targetData(aa->getDataLayout()), globalsBottom(0) {
     uniqueFpNum = 0;
-    uniqueUndefNum = 0;
-  }  
+  }
+  DSAAliasAnalysis* getAliasAnalysis() { return aliasAnalysis; }
+  Program& getProgram() { return program; }
 
 private:
   void addInit(unsigned region, const Expr* addr, const llvm::Constant* val);
@@ -155,10 +151,6 @@ private:
   const Expr* b2i(const llvm::Value* v);
 
 public:
-  void setProgram(Program* p) { program = p; }
-  
-  bool isSmackName(string n);
-  bool isSmackGeneratedName(string n);
   bool isMallocOrFree(llvm::Function* f);
   bool isIgnore(llvm::Function* f);
   bool isInt(const llvm::Type* t);
@@ -182,8 +174,6 @@ public:
   const Expr* mem(const llvm::Value* v);
   const Expr* mem(unsigned region, const Expr* addr);  
 
-  string id(const llvm::Value* v);
-  const Expr* undef();
   const Expr* lit(const llvm::Value* v);
   const Expr* lit(unsigned v);
   const Expr* ptrArith(const llvm::Value* p, vector<llvm::Value*> ps,
@@ -191,10 +181,10 @@ public:
   const Expr* expr(const llvm::Value* v);
   string getString(const llvm::Value* v);
   const Expr* op(const llvm::User* v);
-  const Expr* pred(llvm::CmpInst& ci);
+  const Expr* pred(const llvm::User* v);
   
   const Expr* arg(llvm::Function* f, unsigned pos, llvm::Value* v);
-  const Stmt* call(llvm::Function* f, llvm::CallInst& ci);
+  const Stmt* call(llvm::Function* f, llvm::User& u);
   string code(llvm::CallInst& ci);
   ProcDecl* proc(llvm::Function* f, int n);
   
