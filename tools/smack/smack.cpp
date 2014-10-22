@@ -102,6 +102,10 @@ int main(int argc, char **argv) {
   pass_manager.add(llvm::createCFGSimplificationPass());
   pass_manager.add(llvm::createInternalizePass());
   pass_manager.add(llvm::createPromoteMemoryToRegisterPass());
+  pass_manager.add(llvm::createLoopSimplifyPass());
+  pass_manager.add(llvm::createLoopRotatePass());
+  pass_manager.add(llvm::createIndVarSimplifyPass());
+  pass_manager.add(llvm::createLoopUnrollPass(30000));
   pass_manager.add(new llvm::StructRet());
   pass_manager.add(new llvm::SimplifyEV());
   pass_manager.add(new llvm::SimplifyIV());
