@@ -20,22 +20,47 @@ void __VERIFIER_assume(int v) {
   assume(v);
 }
 
-// Types to be overloaded for: {bool, char, int, float, loff_t, long, pchar,
-// pointer, pthread_t, sector_t, short, size_t, u32, uchar, ulong,
-// unsigned, ushort}
+// Types to be overloaded for: {bool, float, loff_t, pchar,
+// pthread_t, sector_t, size_t, u32, ulong}
 
-char __VERIFIER_nondet_char() {
+char __VERIFIER_nondet_char(void) {
   return (char)__SMACK_nondet();
 }
 
-int __VERIFIER_nondet_int() {
+short __VERIFIER_nondet_short(void) {
+  return (short)__SMACK_nondet();
+}
+
+int __VERIFIER_nondet_int(void) {
   return __SMACK_nondet();
 }
 
-unsigned __VERIFIER_nondet_uint() {
+long __VERIFIER_nondet_long(void) {
+  return (long)__SMACK_nondet();
+}
+
+unsigned char __VERIFIER_nondet_uchar(void) {
+  char x = (char)__SMACK_nondet();
+  assume(x >= 0);
+  return (unsigned char)x;
+}
+
+unsigned short __VERIFIER_nondet_ushort(void) {
+  short x = (short)__SMACK_nondet();
+  assume(x >= 0);
+  return (unsigned short)x;
+}
+
+unsigned __VERIFIER_nondet_uint(void) {
   int x = __SMACK_nondet();
   assume(x >= 0);
   return (unsigned)x;
+}
+
+unsigned long __VERIFIER_nondet_ulong(void) {
+  long x = (long)__SMACK_nondet();
+  assume(x >= 0);
+  return (unsigned long)x;
 }
 
 void* __VERIFIER_nondet_pointer(void) {
