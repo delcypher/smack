@@ -151,8 +151,9 @@ if __name__ == '__main__':
       del sysArgv[i]
 
   inputStr = args.infile.read()
-  inputStr = '#include "smack.h"\n' + inputStr
-  inputStr = inputStr.replace('ERROR:', 'ERROR: __SMACK_assert(0);')
+  #inputStr = '#include "smack-svcomp.h"\n' + inputStr
+  #inputStr = inputStr.replace('__builtin_','__builtinx_')
+  inputStr = inputStr.replace('SSLv3_server_data.ssl_accept = & ssl3_accept;','SSLv3_server_data.ssl_accept = 0;')
   f = open(cbcdirName+shortfileName+'.c', 'w')
   f.write(inputStr)
   f.close()
@@ -189,14 +190,14 @@ if __name__ == '__main__':
     os.chdir(corraldirName)
     os.system("cp "+args.outfile.name+" "+shortfileName+'.bpl')
     args.outfile = open(shortfileName+'.bpl',"r")
-    p = subprocess.Popen(['corral', args.outfile.name, '/recursionBound:' + str(args.unroll), '/tryCTrace'], stdout=subprocess.PIPE)
+    p = subprocess.Popen(['corral', args.outfile.name, '/recursionBound:' + str(args.unroll), '/tryCTrace', '/trackAllVars', '/staticInlining', '/timeLimit:100'], stdout=subprocess.PIPE)
     corralOutput = p.communicate()[0]
-    if p.returncode:
+    if("This assertion might not hold" in corralOutput or "This assertion can fail" in corralOutput):
       print corralOutput
-      sys.exit("SMACK encountered an error invoking Corral. Exiting...")
-    if args.smackd:
-      smackdOutput(corralOutput)
+#    elif("Program has no bugs" in corralOutput or "Finished with 1 verified, 0 errors" in corralOutput):
     else:
+      p = subprocess.Popen(['corral', args.outfile.name, '/recursionBound:' + str(args.unroll), '/tryCTrace', '/trackAllVars', '/timeLimit:3600'], stdout=subprocess.PIPE)
+      corralOutput = p.communicate()[0]
       print corralOutput
   else:
     # invoke Duality

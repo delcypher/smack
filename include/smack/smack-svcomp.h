@@ -9,6 +9,8 @@
 #define __inline // Remove the inline attribute
 #define __builtin_expect __builtinx_expect // Rewrite so that clang does not complain
 #define __builtin_memcpy __builtinx_memcpy // Rewrite so that clang does not complain
+#define __builtin_va_start __builtinx_va_start // Rewrite so that clang does not complain
+#define __builtin_object_size __builtinx_object_size // Rewrite so that clang does not complain
 
 void __VERIFIER_error(void) {
   assert(0);
@@ -19,18 +21,18 @@ void __VERIFIER_assume(int v) {
 }
 
 // Types to be overloaded for: {bool, char, int, float, loff_t, long, pchar,
-// pthread_t, sector_t, short, size_t, u32, uchar, ulong,
+// pointer, pthread_t, sector_t, short, size_t, u32, uchar, ulong,
 // unsigned, ushort}
 
-char __VERIFIER_nondet_char(void) {
+char __VERIFIER_nondet_char() {
   return (char)__SMACK_nondet();
 }
 
-int __VERIFIER_nondet_int(void) {
+int __VERIFIER_nondet_int() {
   return __SMACK_nondet();
 }
 
-unsigned __VERIFIER_nondet_uint(void) {
+unsigned __VERIFIER_nondet_uint() {
   int x = __SMACK_nondet();
   assume(x >= 0);
   return (unsigned)x;
