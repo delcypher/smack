@@ -36,75 +36,9 @@ public:
   static const string FREE;
   static const string MEMCPY;
 
-  static const string BASE;
-  static const string PA;
-  
-  static const string FP;
-  
-  static const string TRUNC;
-
   static const string B2P;
-  static const string I2P;
-  static const string P2I;
   static const string I2B;
   static const string B2I;
-
-  static const string FP2SI;
-  static const string FP2UI;
-  static const string SI2FP;
-  static const string UI2FP;
-
-  static const string ADD;
-  static const string SUB;
-  static const string MUL;
-  static const string SDIV;
-  static const string UDIV;
-  static const string SREM;
-  static const string UREM;
-  static const string AND;
-  static const string OR;
-  static const string XOR;
-  static const string LSHR;
-  static const string ASHR;
-  static const string SHL;
-
-  static const string FADD;
-  static const string FSUB;
-  static const string FMUL;
-  static const string FDIV;
-  static const string FREM;
-
-  static const string SGE;
-  static const string UGE;
-  static const string SLE;
-  static const string ULE;
-  static const string SLT;
-  static const string ULT;
-  static const string SGT;
-  static const string UGT;
-  
-  static const string NAND;
-  static const string MAX;
-  static const string MIN;
-  static const string UMAX;
-  static const string UMIN;
-  
-  static const string FFALSE;
-  static const string FOEQ;
-  static const string FOGE;
-  static const string FOGT;
-  static const string FOLE;
-  static const string FOLT;
-  static const string FONE;
-  static const string FORD;
-  static const string FTRUE;
-  static const string FUEQ;
-  static const string FUGE;
-  static const string FUGT;
-  static const string FULE;
-  static const string FULT;
-  static const string FUNE;
-  static const string FUNO;
   
   static const string MEM_OP;
   static const string REC_MEM_OP;
@@ -164,9 +98,9 @@ public:
   bool isIgnore(llvm::Function* f);
   bool isInt(const llvm::Type* t);
   bool isInt(const llvm::Value* v);
-  bool isBool(llvm::Type* t);
+  bool isBool(const llvm::Type* t);
   bool isBool(const llvm::Value* v);
-  bool isFloat(llvm::Type* t);
+  bool isFloat(const llvm::Type* t);
   bool isFloat(const llvm::Value* v);
 
   unsigned storageSize(llvm::Type* t);
@@ -190,26 +124,28 @@ public:
                        vector<llvm::Type*> ts);
   const Expr* expr(const llvm::Value* v);
   string getString(const llvm::Value* v);
-  const Expr* op(const llvm::User* v);
-  const Expr* pred(const llvm::User* v);
-  
+
+  string cast2fn(unsigned opcode);
+  string bop2fn(unsigned opcode);
+  string armwop2fn(unsigned opcode);
+  string pred2fn(unsigned predicate);
+
+  const Expr* cast(const llvm::Instruction* I);
+  const Expr* cast(const llvm::ConstantExpr* CE);
+  const Expr* cast(unsigned opcode, const llvm::Value* v, const llvm::Type* t);
+
+  const Expr* bop(const llvm::BinaryOperator* BO);
+  const Expr* bop(const llvm::ConstantExpr* CE);
+  const Expr* bop(unsigned opcode, const llvm::Value* lhs, const llvm::Value* rhs, const llvm::Type* t);
+
+  const Expr* cmp(const llvm::CmpInst* I);
+  const Expr* cmp(const llvm::ConstantExpr* CE);
+  const Expr* cmp(unsigned predicate, const llvm::Value* lhs, const llvm::Value* rhs);
+
   const Expr* arg(llvm::Function* f, unsigned pos, llvm::Value* v);
   const Stmt* call(llvm::Function* f, llvm::User& u);
   string code(llvm::CallInst& ci);
   ProcDecl* proc(llvm::Function* f, int n);
-  
-  virtual const Expr* trunc(const llvm::Value* v, llvm::Type* t);
-  virtual const Expr* zext(const llvm::Value* v, llvm::Type* t);
-  virtual const Expr* sext(const llvm::Value* v, llvm::Type* t);
-  virtual const Expr* fptrunc(const llvm::Value* v, llvm::Type* t);
-  virtual const Expr* fpext(const llvm::Value* v, llvm::Type* t);
-  virtual const Expr* fp2ui(const llvm::Value* v, llvm::Type* t);
-  virtual const Expr* fp2si(const llvm::Value* v, llvm::Type* t);
-  virtual const Expr* ui2fp(const llvm::Value* v, llvm::Type* t);
-  virtual const Expr* si2fp(const llvm::Value* v, llvm::Type* t);
-  virtual const Expr* p2i(const llvm::Value* v, llvm::Type* t);
-  virtual const Expr* i2p(const llvm::Value* v, llvm::Type* t);
-  virtual const Expr* bitcast(const llvm::Value* v, llvm::Type* t);
 
   virtual const Stmt* alloca(llvm::AllocaInst& i);
   virtual const Stmt* memcpy(const llvm::MemCpyInst& msi);

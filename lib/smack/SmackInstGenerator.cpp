@@ -254,9 +254,9 @@ void SmackInstGenerator::visitUnreachableInst(llvm::UnreachableInst& ii) {
 /*                   BINARY                    OPERATIONS                     */
 /******************************************************************************/
 
-void SmackInstGenerator::visitBinaryOperator(llvm::BinaryOperator& bo) {
-  processInstruction(bo);
-  emit(Stmt::assign(rep.expr(&bo), rep.op(&bo)));
+void SmackInstGenerator::visitBinaryOperator(llvm::BinaryOperator& I) {
+  processInstruction(I);
+  emit(Stmt::assign(rep.expr(&I),rep.bop(&I)));
 }
 
 /******************************************************************************/
@@ -365,55 +365,17 @@ void SmackInstGenerator::visitAtomicCmpXchgInst(llvm::AtomicCmpXchgInst& i) {
 }
 
 void SmackInstGenerator::visitAtomicRMWInst(llvm::AtomicRMWInst& i) {
+  using llvm::AtomicRMWInst;
   processInstruction(i);
-  
   const Expr* res = rep.expr(&i);
   const Expr* mem = rep.mem(i.getPointerOperand());
   const Expr* val = rep.expr(i.getValOperand());  
-  const Expr* op;  
-  
-  switch (i.getOperation()) {
-    using llvm::AtomicRMWInst;
-  case AtomicRMWInst::Xchg:
-    op = val;
-    break;
-  case AtomicRMWInst::Add:
-    op = Expr::fn(SmackRep::ADD,mem,val);
-    break;
-  case AtomicRMWInst::Sub:
-    op = Expr::fn(SmackRep::SUB,mem,val);
-    break;
-  case AtomicRMWInst::And:
-    op = Expr::fn(SmackRep::AND,mem,val);
-    break;
-  case AtomicRMWInst::Nand:
-    op = Expr::fn(SmackRep::NAND,mem,val);
-    break;
-  case AtomicRMWInst::Or:
-    op = Expr::fn(SmackRep::OR,mem,val);
-    break;
-  case AtomicRMWInst::Xor:
-    op = Expr::fn(SmackRep::XOR,mem,val);
-    break;
-  case AtomicRMWInst::Max:
-    op = Expr::fn(SmackRep::MAX,mem,val);
-    break;
-  case AtomicRMWInst::Min:
-    op = Expr::fn(SmackRep::MIN,mem,val);
-    break;
-  case AtomicRMWInst::UMax:
-    op = Expr::fn(SmackRep::UMAX,mem,val);
-    break;
-  case AtomicRMWInst::UMin:
-    op = Expr::fn(SmackRep::UMIN,mem,val);
-    break;
-  default:
-    assert(false && "unexpected atomic operation.");
-  }  
-  
   emit(Stmt::assign(res,mem));
-  emit(Stmt::assign(mem,op));
-}
+  emit(Stmt::assign(mem,
+    i.getOperation() == AtomicRMWInst::Xchg
+      ? val
+      : Expr::fn(rep.armwop2fn(i.getOperation()),mem,val) ));
+  }
 
 void SmackInstGenerator::visitGetElementPtrInst(llvm::GetElementPtrInst& gepi) {
   processInstruction(gepi);
@@ -433,84 +395,18 @@ void SmackInstGenerator::visitGetElementPtrInst(llvm::GetElementPtrInst& gepi) {
 /*                 CONVERSION                    OPERATIONS                   */
 /******************************************************************************/
 
-void SmackInstGenerator::visitTruncInst(llvm::TruncInst& ti) {
-  processInstruction(ti);
-  emit(Stmt::assign(rep.expr(&ti),
-    rep.trunc(ti.getOperand(0),ti.getType())));
-}
-
-void SmackInstGenerator::visitZExtInst(llvm::ZExtInst& ci) {
-  processInstruction(ci);
-  emit(Stmt::assign(rep.expr(&ci),
-    rep.zext(ci.getOperand(0),ci.getType())));
-}
-
-void SmackInstGenerator::visitSExtInst(llvm::SExtInst& ci) {
-  processInstruction(ci);
-  emit(Stmt::assign(rep.expr(&ci),
-    rep.sext(ci.getOperand(0),ci.getType())));
-}
-
-void SmackInstGenerator::visitFPTruncInst(llvm::FPTruncInst& i) {
-  processInstruction(i);
-  emit(Stmt::assign(rep.expr(&i),
-    rep.fptrunc(i.getOperand(0),i.getType())));  
-}
-
-void SmackInstGenerator::visitFPExtInst(llvm::FPExtInst& i) {
-  processInstruction(i);
-  emit(Stmt::assign(rep.expr(&i),
-    rep.fpext(i.getOperand(0),i.getType())));
-}
-
-void SmackInstGenerator::visitFPToUIInst(llvm::FPToUIInst& i) {
-  processInstruction(i);
-  emit(Stmt::assign(rep.expr(&i),rep.fp2ui(i.getOperand(0),i.getType())));
-}
-
-void SmackInstGenerator::visitFPToSIInst(llvm::FPToSIInst& i) {
-  processInstruction(i);
-  emit(Stmt::assign(rep.expr(&i),rep.fp2si(i.getOperand(0),i.getType())));
-}
-
-void SmackInstGenerator::visitUIToFPInst(llvm::UIToFPInst& i) {
-  processInstruction(i);
-  emit(Stmt::assign(rep.expr(&i),rep.ui2fp(i.getOperand(0),i.getType())));
-}
-
-void SmackInstGenerator::visitSIToFPInst(llvm::SIToFPInst& i) {
-  processInstruction(i);
-  emit(Stmt::assign(rep.expr(&i),rep.si2fp(i.getOperand(0),i.getType())));
-}
-
-void SmackInstGenerator::visitPtrToIntInst(llvm::PtrToIntInst& i) {
-  processInstruction(i);
-  emit(Stmt::assign(rep.expr(&i),rep.p2i(i.getOperand(0),i.getType())));
-}
-
-void SmackInstGenerator::visitIntToPtrInst(llvm::IntToPtrInst& i) {
-  processInstruction(i);
-  emit(Stmt::assign(rep.expr(&i),rep.i2p(i.getOperand(0),i.getType())));
-}
-
-void SmackInstGenerator::visitBitCastInst(llvm::BitCastInst& ci) {
-  processInstruction(ci);
-  emit(Stmt::assign(rep.expr(&ci),
-    rep.bitcast(ci.getOperand(0),ci.getType())));
+void SmackInstGenerator::visitCastInst(llvm::CastInst& I) {
+  processInstruction(I);
+  emit(Stmt::assign(rep.expr(&I),rep.cast(&I)));
 }
 
 /******************************************************************************/
 /*                   OTHER                     OPERATIONS                     */
 /******************************************************************************/
 
-void SmackInstGenerator::visitICmpInst(llvm::ICmpInst& ci) {
-  processInstruction(ci);
-  emit(Stmt::assign(rep.expr(&ci), rep.pred(&ci)));
-}
-
-void SmackInstGenerator::visitFCmpInst(llvm::FCmpInst& ci) {
-  processInstruction(ci);
-  emit(Stmt::assign(rep.expr(&ci), rep.pred(&ci)));
+void SmackInstGenerator::visitCmpInst(llvm::CmpInst& I) {
+  processInstruction(I);
+  emit(Stmt::assign(rep.expr(&I),rep.cmp(&I)));
 }
 
 void SmackInstGenerator::visitPHINode(llvm::PHINode& phi) {
