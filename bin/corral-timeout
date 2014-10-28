@@ -1,0 +1,3 @@
+#!/bin/bash
+( cmdpid=$BASHPID; (sleep 100; kill $cmdpid) & exec $CORRAL $@ )
+
