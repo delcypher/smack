@@ -20,8 +20,16 @@ void __VERIFIER_assume(int v) {
   assume(v);
 }
 
-// Types to be overloaded for: {bool, float, loff_t, pchar,
-// pthread_t, sector_t, size_t, u32, ulong}
+void exit(int x) {
+  assume(0);
+}
+
+// Types to be overloaded for: {float, loff_t, pchar,
+// pthread_t, sector_t, size_t, u32}
+
+bool __VERIFIER_nondet_bool(void) {
+  return (bool)__SMACK_nondet();
+}
 
 char __VERIFIER_nondet_char(void) {
   return (char)__SMACK_nondet();
