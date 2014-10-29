@@ -9,6 +9,10 @@ import subprocess
 import argparse
 import platform
 from smackgen import *
+import subprocess as sub
+import threading
+from toSVCOMPformat import *
+
 
 VERSION = '1.4.1'
 
@@ -103,6 +107,8 @@ def smackdOutput(corralOutput):
     }
   json_string = json.dumps(json_data)
   print json_string
+  return json_string
+
 
 
 if __name__ == '__main__':
@@ -129,6 +135,8 @@ if __name__ == '__main__':
       longfileName = longfileName.split('/')
       shortfileName = path.splitext(longfileName[len(longfileName)-1])[0]
 
+      args.outputdir = os.path.abspath('./')
+
       boogiedirName = args.outputdir+'/BPL_'+longfileName[len(longfileName)-2]+'/'
       cbcdirName = args.outputdir+'/CBC_'+longfileName[len(longfileName)-2]+'/'
       corraldirName = boogiedirName+'/CORRAL_'+shortfileName+'/'
@@ -140,7 +148,8 @@ if __name__ == '__main__':
       if(not os.path.exists(corraldirName)):
         os.system("mkdir "+corraldirName)
 
-      sysArgv[i] = cbcdirName+shortfileName+'.c'
+      sysArgv[i] = cbcdirName+shortfileName+'_tokenized.c'
+      #sysArgv[i] = cbcdirName+shortfileName+'.c'
 
     elif sys.argv[i] == '--time-limit':
       del sysArgv[i]
@@ -157,6 +166,7 @@ if __name__ == '__main__':
   f = open(cbcdirName+shortfileName+'.c', 'w')
   f.write(inputStr)
   f.close()
+  os.system("tokenizer "+cbcdirName+shortfileName+".c > "+cbcdirName+shortfileName+"_tokenized.c")
 
   sysArgv = sysArgv + ['--bc'] + [cbcdirName+shortfileName+'.bc'] + ['-o']+ [boogiedirName+shortfileName+'.bpl']
 
@@ -168,7 +178,6 @@ if __name__ == '__main__':
   args.outfile = open(boogiedirName+shortfileName+'.bpl', 'w')
   args.outfile.write(bpl)#
   args.outfile.close()#
-
 
 
   if args.verifier == 'boogie':
@@ -192,13 +201,22 @@ if __name__ == '__main__':
     args.outfile = open(shortfileName+'.bpl',"r")
     p = subprocess.Popen(['corral', args.outfile.name, '/recursionBound:' + str(args.unroll), '/tryCTrace', '/trackAllVars', '/staticInlining', '/timeLimit:100'], stdout=subprocess.PIPE)
     corralOutput = p.communicate()[0]
-    if("This assertion might not hold" in corralOutput or "This assertion can fail" in corralOutput):
+    if(("This assertion might not hold" in corralOutput) or ("This assertion can fail" in corralOutput) or ("Program has no bugs" in corralOutput) or ("Finished with 1 verified, 0 errors" in corralOutput)):
       print corralOutput
-#    elif("Program has no bugs" in corralOutput or "Finished with 1 verified, 0 errors" in corralOutput):
+      if(("This assertion might not hold" in corralOutput) or ("This assertion can fail" in corralOutput)):
+        xml_file = smackJsonToXmlGraph(smackdOutput(corralOutput))
+        xmls = open(cbcdirName+shortfileName+".xml","w")
+        xmls.write(xml_file)
+        xmls.close()
     else:
-      p = subprocess.Popen(['corral', args.outfile.name, '/recursionBound:' + str(args.unroll), '/tryCTrace', '/trackAllVars', '/timeLimit:3600'], stdout=subprocess.PIPE)
+      p = subprocess.Popen(['corral', args.outfile.name, '/recursionBound:' + str(args.unroll), '/tryCTrace', '/trackAllVars', '/timeLimit:5000'], stdout=subprocess.PIPE)
       corralOutput = p.communicate()[0]
       print corralOutput
+      if(("This assertion might not hold" in corralOutput) or ("This assertion can fail" in corralOutput)):
+        xml_file = smackJsonToXmlGraph(smackdOutput(corralOutput))
+        xmls = open(cbcdirName+shortfileName+".xml","w")
+        xmls.write(xml_file)
+        xmls.close()
   else:
     # invoke Duality
     os.chdir(corraldirName)
