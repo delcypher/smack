@@ -135,7 +135,7 @@ if __name__ == '__main__':
       longfileName = longfileName.split('/')
       shortfileName = path.splitext(longfileName[len(longfileName)-1])[0]
 
-      args.outputdir = os.path.abspath('./')
+      args.outputdir = os.path.abspath(args.outputdir)
 
       boogiedirName = args.outputdir+'/BPL_'+longfileName[len(longfileName)-2]+'/'
       cbcdirName = args.outputdir+'/CBC_'+longfileName[len(longfileName)-2]+'/'
@@ -163,6 +163,8 @@ if __name__ == '__main__':
   #inputStr = '#include "smack-svcomp.h"\n' + inputStr
   #inputStr = inputStr.replace('__builtin_','__builtinx_')
   inputStr = inputStr.replace('SSLv3_server_data.ssl_accept = & ssl3_accept;','SSLv3_server_data.ssl_accept = 0;')
+  inputStr = re.sub(r'#line .*', '', inputStr)
+  inputStr = inputStr.replace('100000','10')
   f = open(cbcdirName+shortfileName+'.c', 'w')
   f.write(inputStr)
   f.close()
