@@ -15,7 +15,7 @@ tests = [
   RegTest('diskperf_false.i.cil',  r'0 verified, 1 errors?', r'This assertion can fail', r'This assertion can fail', 2),
   RegTest('floppy2_true.i.cil',    r'1 verified, 0 errors?', r'Program has no bugs', r'Program has no bugs', 2),
   RegTest('floppy_true.i.cil',     r'1 verified, 0 errors?', r'Program has no bugs', r'Program has no bugs', 2),
-  RegTest('floppy_false.i.cil',    r'0 verified, 5 errors?', r'This assertion can fail', r'This assertion can fail', 2),
+  RegTest('floppy_false.i.cil',    r'0 verified, 1 errors?', r'This assertion can fail', r'This assertion can fail', 2),
   RegTest('kbfiltr_false.i.cil',   r'0 verified, 1 errors?', r'This assertion can fail', r'This assertion can fail', 2),
   RegTest('parport_true.i.cil',    r'1 verified, 0 errors?', r'Program has no bugs', r'Program has no bugs', 2),
   RegTest('parport_false.i.cil',   r'0 verified, 1 errors?', r'This assertion can fail', r'This assertion can fail', 2)
@@ -58,7 +58,7 @@ if __name__ == '__main__':
 
   # parse command line arguments
   parser = argparse.ArgumentParser(description='Runs regressions in this folder.')
-  parser.add_argument('--verifier', dest='verifier', choices=['boogie', 'corral', 'duality'], default=['boogie'], nargs='*',
+  parser.add_argument('--verifier', dest='verifier', choices=['boogie', 'corral', 'duality'], default=['corral'], nargs='*',
                       help='choose verifiers to be used')
   args = parser.parse_args()
 
